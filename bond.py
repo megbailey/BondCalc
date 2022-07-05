@@ -1,29 +1,15 @@
 import datetime
 from datetime import date
+import csv
+import re
 import requests
 
 BASE_URL ='https://api.fiscaldata.treasury.gov/services/api/fiscal_service'
 BOND_ENDPOINT ='/v2/accounting/od/redemption_tables'
 
-def read_write_CSV( file_name ):
-    
-    """ csv_uniques = []
-    with open( file_name, 'r', encoding="utf-8" ) as csv_file:
-        reader = csv.reader( csv_file )
-
-        for row in reader:
-            denom = row[0]
-            series = row[1]
-            issue_date = row[3]
-            csvTuple = (denom, series, issue_date)
-            if  """
-
 def curl_bond_data():
     today = date.today()
-    print(  type( today ) )
     today_redemp_period = today.strftime("%Y-%m")
-    print( today_redemp_period)
-    print( today.strftime("%b") ) 
 
     #TODO: make user input / scraped from csv
     issue_name = 'issue_name:eq:Series%20EE'
@@ -32,9 +18,7 @@ def curl_bond_data():
 
     # Redemption period is always today
     redemp_period = 'redemp_period:eq:' + today_redemp_period
-    filters = issue_year + ',' + redemp_period + ',' + issue_name
-    
-    #parameters = '?fields=' + fields + '&filter=' + filters
+    filters = issue_year + ',' + redemp_period + ',' + issue_name    
     parameters = '?filter=' + filters
     get_request = BASE_URL + BOND_ENDPOINT + parameters
 
@@ -72,19 +56,12 @@ def curl_bond_data():
             
             bond_list.append(data['issue_name'])
             treasury_dict[ tuple(bond_list) ] = data
-            
-            # print(  data['redemp_period'] + " " + data['issue_year'] + " " + data['issue_months'] + " " + data['issue_name'] + 
-            #         " 50 -> " + data['int_earned_50_amt'] + " " + data['redemp_value_50_amt'] + 
-            #         " 200 -> " + data['int_earned_200_amt'] + " " + data['redemp_value_200_amt']  + 
-            #         " 1000 -> " + data['int_earned_1000_amt'] + " " + data['redemp_value_1000_amt']
-            #         )
 
         #If there is a next page
         if ( next_page is not None ):
             get_request = BASE_URL + BOND_ENDPOINT + parameters + next_page
             response = requests.get( get_request )
             payload = response.json()
-
 
     # Print method stats   
     total_pages = payload['meta']['total-pages']
@@ -116,15 +93,39 @@ def main():
             Filters: https://fiscaldata.treasury.gov/api-documentation/#filters\n\
             -------------------------------------------------------------------------------------\n")
     treasury_data = curl_bond_data()
-    for entry in treasury_data:
-        print(entry)
-        #print('{0} -> ' + treasury_data[entry].format(entry))
+    
+    # Checking curl response
+    #for key, value in treasury_data.items():
+    #    print( str(key) + ' -> ' + str(value) + '\n\n')
         
-    read_write_CSV("/Users/meganbailey/git/BondCalc/MB - USA SB - Sheet1.csv")
+    csv_file = "/Users/meganbailey/git/BondCalc/MB - USA SB - Sheet1.csv"
 
+    modified_file = []
+    with open( csv_file, 'r', encoding="utf-8" ) as csv_file:
+        yield_int = 'yield_from_issue_pct'
+        reader = csv.reader( csv_file )
 
-    #fields='issue_name,issue_months,issue_year,int_earned_50_amt,redemp_value_50_amt,yield_from_issue_pct'
-    #bond_date = strptime
+        for row in reader:
+            denom = re.sub('[\$,]', '', row[0])
+            series = row[1]
+            issue_date = row[3]
+            int_earned = 'int_earned_' + denom + '_amt'
+            redemp_value = 'redemp_value_' + denom + '_amt'
+
+            if ( 'Series' not in series ):
+                series = 'Series ' + series
+            mimic_tuple = ( issue_date, series )
+
+            # Write
+            if (mimic_tuple in treasury_data):
+                row[5] = treasury_data[mimic_tuple][yield_int]
+                row[6] = treasury_data[mimic_tuple][int_earned]
+                row[7] = treasury_data[mimic_tuple][redemp_value]
+                modified_file.append(row)
+
+    for row in modified_file:
+        print(row)
+
 
 if __name__=="__main__":
     main()
