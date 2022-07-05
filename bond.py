@@ -96,36 +96,46 @@ def main():
     
     # Checking curl response
     #for key, value in treasury_data.items():
-    #    print( str(key) + ' -> ' + str(value) + '\n\n')
+       #print( str(key) + ' -> ' + str(value) + '\n\n')
+       #print( str(key) + '\n\n')
         
     csv_file = "/Users/meganbailey/git/BondCalc/MB - USA SB - Sheet1.csv"
+    csv_headers = ['Denom', 'Series', 'Issue Price', 'Issue Date', 'Serial #', 'Interest Rate', 'Interest', 'Current Value']
+    yield_int = 'yield_from_issue_pct'
+    modified_file =[]
+    
+    with open( csv_file, 'r', encoding="utf-8" ) as csvfile:
+        csv_reader = csv.reader(csvfile)
 
-    modified_file = []
-    with open( csv_file, 'r', encoding="utf-8" ) as csv_file:
-        yield_int = 'yield_from_issue_pct'
-        reader = csv.reader( csv_file )
-
-        for row in reader:
+        for row in csv_reader:
             denom = re.sub('[\$,]', '', row[0])
-            series = row[1]
+            
             issue_date = row[3]
             int_earned = 'int_earned_' + denom + '_amt'
             redemp_value = 'redemp_value_' + denom + '_amt'
 
-            if ( 'Series' not in series ):
-                series = 'Series ' + series
-            mimic_tuple = ( issue_date, series )
+            if ( 'Series' not in row[1] ):
+                row[1] = 'Series ' + row[1]
+            mimic_tuple = ( issue_date, row[1] )
 
-            # Write
-            if (mimic_tuple in treasury_data):
-                row[5] = treasury_data[mimic_tuple][yield_int]
-                row[6] = treasury_data[mimic_tuple][int_earned]
-                row[7] = treasury_data[mimic_tuple][redemp_value]
-                modified_file.append(row)
-
-    for row in modified_file:
-        print(row)
-
+            # Checking if the treasury data is relevant to the user data
+            # Then, change the row for a write back
+            if (mimic_tuple in treasury_data): # issue_date is a single year-month
+                row[5] = treasury_data[mimic_tuple][yield_int] + '%'
+                row[6] = '$' + treasury_data[mimic_tuple][int_earned]
+                row[7] = '$' + treasury_data[mimic_tuple][redemp_value]
+            else: 
+                for key, value in treasury_data.items(): # Iterate through keys to find a possible match
+                    if ( set(mimic_tuple).issubset(key) ): # issue date is a range
+                        row[5] = value[yield_int] + '%'
+                        row[6] = '$' + value[int_earned]
+                        row[7] = '$' + value[redemp_value]
+            modified_file.append(row)
+               
+    with open(csv_file, 'w') as csvfile:
+       writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+       for data in modified_file:
+            writer.writerow(data)
 
 if __name__=="__main__":
     main()
