@@ -1,3 +1,4 @@
+import sys, getopt
 import datetime
 from datetime import date
 import csv
@@ -6,6 +7,65 @@ import requests
 
 BASE_URL ='https://api.fiscaldata.treasury.gov/services/api/fiscal_service'
 BOND_ENDPOINT ='/v2/accounting/od/redemption_tables'
+
+def usage():
+    print('Usage:\n\tbond.py [-h,f] -i <inputfile>\n\
+            Options:\n\
+            -h,--help\t Prints usage\n\
+            -f,--fields\t Availble fields for search from (url) ' + BASE_URL)
+
+def info():
+    print( "\n\
+            --------------------------------------------------------------------------------------\n\
+            This script parses a CSV that contains USA Treasury Bonds information.\n\
+            It then queries the USA Treasury API for the current redemption value.\n\
+            --------------------------------------------------------------------------------------\n\
+            For more information on the contents of the USA Treasury API, use option -f, or the following documentation ->\n\
+            Fields: https://fiscaldata.treasury.gov/datasets/redemption-tables/redemption-tables\n\
+            Filters: https://fiscaldata.treasury.gov/api-documentation/#filters\n" )
+
+def get_api_fields():
+    get_request = BASE_URL + BOND_ENDPOINT
+    # Attempt to reach out to USA Treasury beforehand to gather some data
+    try:
+        initial_response = requests.get( get_request )
+    except MaxRetryError:
+        print("Could not reach (url) " + get_request + ". Aborting." )
+    else:
+        available_fields = ( initial_response.json() )['meta']['dataTypes']
+    
+    for field in available_fields:
+        print( "\t\tField: " + field + "\tType: " + available_fields[field] )
+
+# Main loop to parse command line inputs
+def main(argv):
+
+    given_input_file = False
+    input_file = ''
+    try:
+        opts, args = getopt.getopt(argv, "hfi:",["input="])
+    except getopt.GetoptError:
+        usage()
+        sys.exit(2)
+
+    for opt, arg in opts:
+        if opt in ("-h", "--help"):
+            usage()
+            sys.exit()
+        elif opt in ("-i", "--input"):
+            input_file = arg
+            given_input_file = True
+        elif opt in ("-f", "--fields"):
+            get_api_fields()
+            sys.exit()
+
+    if not given_input_file:
+        print("Input file is required.")
+        usage()
+        sys.exit(2)
+    else:
+        process_csv(input_file)
+
 
 def curl_bond_data():
     today = date.today()
@@ -70,28 +130,8 @@ def curl_bond_data():
 
     return treasury_dict
 
-def main():
+def process_csv(inputfile):
 
-    get_request = BASE_URL + BOND_ENDPOINT
-    response = requests.get( get_request )
-    payload = response.json()
-    available_fields = payload['meta']['dataTypes']
-
-    print( "\n\
-            --------------------------------------------------------------------------------------\n\
-            This script parses a CSV or spreadsheet that contains USA Treasury Bonds information.\n\
-            It then queries the USA Tresurey API for the redemption value.\n\
-            --------------------------------------------------------------------------------------\n\
-            Current fields that can be returned ->\n" )
-    for field in available_fields:
-        print( "\t\tField: " + field + "\tType: " + available_fields[field] )
-
-    print( "\n\
-            -------------------------------------------------------------------------------------\n\
-            See the following documentation for more requests ->\n\
-            Fields: https://fiscaldata.treasury.gov/datasets/redemption-tables/redemption-tables\n\
-            Filters: https://fiscaldata.treasury.gov/api-documentation/#filters\n\
-            -------------------------------------------------------------------------------------\n")
     treasury_data = curl_bond_data()
     
     # Checking curl response
@@ -99,12 +139,12 @@ def main():
        #print( str(key) + ' -> ' + str(value) + '\n\n')
        #print( str(key) + '\n\n')
         
-    csv_file = "/Users/meganbailey/git/BondCalc/MB - USA SB - Sheet1.csv"
+    #csv_file = "/Users/meganbailey/git/BondCalc/MB - USA SB - Sheet1.csv"
     csv_headers = ['Denom', 'Series', 'Issue Price', 'Issue Date', 'Serial #', 'Interest Rate', 'Interest', 'Current Value']
     yield_int = 'yield_from_issue_pct'
     modified_file =[]
     
-    with open( csv_file, 'r', encoding="utf-8" ) as csvfile:
+    with open( inputfile, 'r', encoding="utf-8" ) as csvfile:
         csv_reader = csv.reader(csvfile)
 
         for row in csv_reader:
@@ -132,10 +172,13 @@ def main():
                         row[7] = '$' + value[redemp_value]
             modified_file.append(row)
                
-    with open(csv_file, 'w') as csvfile:
+    with open(inputfile, 'w') as csvfile:
        writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
        for data in modified_file:
             writer.writerow(data)
 
-if __name__=="__main__":
-    main()
+
+
+
+if __name__ == "__main__":
+   main(sys.argv[1:])
