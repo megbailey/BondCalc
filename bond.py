@@ -4,6 +4,7 @@ from datetime import date
 import csv
 import re
 import requests
+import os
 
 BASE_URL ='https://api.fiscaldata.treasury.gov/services/api/fiscal_service'
 BOND_ENDPOINT ='/v2/accounting/od/redemption_tables'
@@ -24,22 +25,14 @@ def info():
             Fields: https://fiscaldata.treasury.gov/datasets/redemption-tables/redemption-tables\n\
             Filters: https://fiscaldata.treasury.gov/api-documentation/#filters\n" )
 
-def get_api_fields():
-    get_request = BASE_URL + BOND_ENDPOINT
-    # Attempt to reach out to USA Treasury beforehand to gather some data
-    #TODO: Catch error if cannot connect
-    initial_response = requests.get( get_request )
-    available_fields = ( initial_response.json() )['meta']['dataTypes']
-    for field in available_fields:
-        print( "\t\tField: " + field + "\tType: " + available_fields[field] )
-
 # Main loop to parse command line inputs
 def main(argv):
 
-    given_input_file = False
+    given_input = False
+    modify_input = False
     input_file = ''
     try:
-        opts, args = getopt.getopt(argv, "hfi:",["input="])
+        opts, args = getopt.getopt(argv, "hfmi:",["input="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -50,17 +43,36 @@ def main(argv):
             sys.exit()
         elif opt in ("-i", "--input"):
             input_file = arg
-            given_input_file = True
+            given_input = True
+        elif opt in ("-m", "--modify") :
+            modify_input = True
         elif opt in ("-f", "--fields"):
             get_api_fields()
             sys.exit()
 
-    if not given_input_file:
+    if not given_input:
         print("Input file is required.")
         usage()
         sys.exit(2)
-    else:
-        print(scan_csv(input_file))
+
+    (denoms, series, years) = scan_csv(input_file)
+    #Dictionary of relevant bond info. Key is issue_date
+    usa_bonds = curl_api(denoms, series, years)
+    print(usa_bonds)
+    
+    #compare_results(input_file, usa_bon)
+    #if modify_input_file:
+    #    modify_csv(input_file)
+    #else:
+
+def get_api_fields():
+    get_request = BASE_URL + BOND_ENDPOINT
+    # Attempt to reach out to USA Treasury beforehand to gather some data
+    #TODO: Catch error if cannot connect
+    initial_response = requests.get( get_request )
+    available_fields = ( initial_response.json() )['meta']['dataTypes']
+    for field in available_fields:
+        print( "\t\tField: " + field + "\tType: " + available_fields[field] )
 
 
 def scan_csv(inputfile):
@@ -115,46 +127,33 @@ def scan_csv(inputfile):
 
 
     return (found_denom, found_series, found_years)
-    # Checking if the treasury data is relevant to the user data
-    # Then, change the row for a write back
-    # if (mimic_tuple in treasury_data): # issue_date is a single year-month
-    #     row[5] = treasury_data[mimic_tuple][yield_int] + '%'
-    #     row[6] = '$' + treasury_data[mimic_tuple][int_earned]
-    #     row[7] = '$' + treasury_data[mimic_tuple][redemp_value]
-    # else: 
-    #     for key, value in treasury_data.items(): # Iterate through keys to find a possible match
-    #         if ( set(mimic_tuple).issubset(key) ): # issue date is a range
-    #             row[5] = value[yield_int] + '%'
-    #             row[6] = '$' + value[int_earned]
-    #             row[7] = '$' + value[redemp_value]
-    # modified_file.append(row)
-               
-    # with open(inputfile, 'w') as csvfile:
-    #    writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-    #    for data in modified_file:
-    #         writer.writerow(data)
 
-
-def curl_bond_data():
-    today = date.today()
-    today_redemp_period = today.strftime("%Y-%m")
-
-    #TODO: make user input / scraped from csv
-    issue_name = 'issue_name:eq:Series%20EE'
-    issue_year = 'issue_year:in:(1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011)'
+def curl_api(denoms, series, years):
 
     # Redemption period is always today
-    redemp_period = 'redemp_period:eq:' + today_redemp_period
+    today = date.today()
+    today = date.today()
+    redemp_period = 'redemp_period:eq:' + today.strftime("%Y-%m")
+
+    # form issue_name filter
+    issue_name = 'issue_name:in:('
+    for s in series:
+        if issue_name[-1] != '(':
+            issue_name += ","
+        issue_name += "Series%20" + s
+    issue_name += ')'
+
+    #form issue_year filter
+    issue_year = 'issue_year:in:('
+    for y in years:
+        if issue_year[-1] != '(':
+            issue_year += ","
+        issue_year += y
+    issue_year += ')'
+
     filters = issue_year + ',' + redemp_period + ',' + issue_name    
     parameters = '?filter=' + filters
     get_request = BASE_URL + BOND_ENDPOINT + parameters
-
-    #int_earned_key = 'int_earned_' + denom_value + '_amt'
-    #redemp_value_key = 'redemp_value_' + denom_value + '_amt'
-        #added_csv_headers = { "Interest Rate": -1, "Interest": -1, "Current Value": -1 }
-    yield_int = 'yield_from_issue_pct'
-    modified_file =[]
-
     response = requests.get( get_request )
     payload = response.json()
 
@@ -172,23 +171,22 @@ def curl_bond_data():
         next_page = payload['links']['next']
 
         for data in payload['data']:
-
             issue_months = data['issue_months']
             issue_year = data['issue_year']
-            bond_list = []
+            bond_info = []
             # If months is a range
             if ( '-' in issue_months ):
                 month_range = issue_months.split('-')
                 start = datetime.datetime.strptime( issue_year + "-" + month_range[0].strip(), "%Y-%b").strftime("%Y-%m")
                 end =  datetime.datetime.strptime( issue_year + "-" + month_range[1].strip(), "%Y-%b").strftime("%Y-%m")
-                bond_list.append(start)
-                bond_list.append(end)
+                bond_info.append(start)
+                bond_info.append(end)
             else:
                 bond_date = datetime.datetime.strptime(issue_year + "-" + issue_months.strip(),  "%Y-%b").strftime("%Y-%m")
-                bond_list.append(bond_date)
+                bond_info.append(bond_date)
             
-            bond_list.append(data['issue_name'])
-            treasury_dict[ tuple(bond_list) ] = data
+            bond_info.append(data['issue_name'])
+            treasury_dict[ tuple(bond_info) ] = data
 
         #If there is a next page
         if ( next_page is not None ):
@@ -203,6 +201,30 @@ def curl_bond_data():
 
     return treasury_dict
 
+
+  #int_earned_key = 'int_earned_' + denom_value + '_amt'
+    #redemp_value_key = 'redemp_value_' + denom_value + '_amt'
+    #added_csv_headers = { "Interest Rate": -1, "Interest": -1, "Current Value": -1 }
+    #modified_file =[]
+
+ # Checking if the treasury data is relevant to the user data
+    # Then, change the row for a write back
+    # if (mimic_tuple in treasury_data): # issue_date is a single year-month
+    #     row[5] = treasury_data[mimic_tuple][yield_int] + '%'
+    #     row[6] = '$' + treasury_data[mimic_tuple][int_earned]
+    #     row[7] = '$' + treasury_data[mimic_tuple][redemp_value]
+    # else: 
+    #     for key, value in treasury_data.items(): # Iterate through keys to find a possible match
+    #         if ( set(mimic_tuple).issubset(key) ): # issue date is a range
+    #             row[5] = value[yield_int] + '%'
+    #             row[6] = '$' + value[int_earned]
+    #             row[7] = '$' + value[redemp_value]
+    # modified_file.append(row)
+               
+    # with open(inputfile, 'w') as csvfile:
+    #    writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    #    for data in modified_file:
+    #         writer.writerow(data)
 
 if __name__ == "__main__":
    main(sys.argv[1:])
