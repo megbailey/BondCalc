@@ -27,13 +27,8 @@ def info():
 def get_api_fields():
     get_request = BASE_URL + BOND_ENDPOINT
     # Attempt to reach out to USA Treasury beforehand to gather some data
-    try:
-        initial_response = requests.get( get_request )
-    except MaxRetryError:
-        print("Could not reach (url) " + get_request + ". Aborting." )
-    else:
-        available_fields = ( initial_response.json() )['meta']['dataTypes']
-    
+    initial_response = requests.get( get_request )
+    available_fields = ( initial_response.json() )['meta']['dataTypes']
     for field in available_fields:
         print( "\t\tField: " + field + "\tType: " + available_fields[field] )
 
