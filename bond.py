@@ -18,21 +18,27 @@ def usage():
 def info():
     print( "\n\
             --------------------------------------------------------------------------------------\n\
-            This script parses a CSV that contains USA Treasury Bonds information.\n\
-            It then queries the USA Treasury API for the current redemption value.\n\
+            CMD Bond is able to do a mass lookup of USA Treasury Bond redemption values given their Denom, Series, and Issue Date.\n\
+            This information is parsed from a CSV on your filesystem to form a targeted query for the current redemption value from the USA Tresaury API.\n\
+            The primary use case for this is for paper bonds which USA no longer issues (circa 2011). \n\
+            More Options: bond.py -h \n\
             --------------------------------------------------------------------------------------\n\
-            For more information on the contents of the USA Treasury API, use option -f, or the following documentation ->\n\
+            For more information on the contents of the USA Treasury API and descriptions on query field,\n\
+            use option -f, or the following documentation official ->\n\
             Fields: https://fiscaldata.treasury.gov/datasets/redemption-tables/redemption-tables\n\
             Filters: https://fiscaldata.treasury.gov/api-documentation/#filters\n" )
 
 # Main loop to parse command line inputs
 def main(argv):
 
-    given_input = False
-    modify_input = False
     input_file = ''
+    input_flag = False
+    modify_flag = False
+    sum_flag = False
+    print_flag = False
+
     try:
-        opts, args = getopt.getopt(argv, "hfmi:",["input="])
+        opts, args = getopt.getopt(argv, "hpsmfi:",["input="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -41,63 +47,124 @@ def main(argv):
         if opt in ("-h", "--help"):
             usage()
             sys.exit()
-        elif opt in ("-i", "--input"):
-            input_file = arg
-            given_input = True
-        elif opt in ("-m", "--modify") :
-            modify_input = True
+        elif opt in ("-p", "--print"):
+            print_flag = True
+        elif opt in ("-s", "--sum"):
+            sum_flag = True
+        elif opt in ("-m", "--modify"):
+            modify_flag = True
         elif opt in ("-f", "--fields"):
             get_api_fields()
             sys.exit()
+        elif opt in ("-i", "--input"):
+            input_file = arg
+            input_flag = True
 
-    if not given_input:
+    if not input_flag:
         print("Input file is required.")
         usage()
         sys.exit(2)
 
-    (denoms, series, years) = scan_csv(input_file)
-    #Dictionary of relevant bond info. Key is issue_date
-    usa_bonds = curl_api(denoms, series, years)
-    print(usa_bonds)
+    # Look through the CSV file so that we can ask the API for a more targeted amount of info
+    (denoms, series, years) = preprocess_csv( input_file, print_flag )
+
+    # Returns a dictionary of relevant bond info. Key is a tuple of ( issue_date(s), issue_name/series )
+    usa_bonds = fetch_bond_data ( 
+        denoms, 
+        series, 
+        years 
+    )
+
+    # Compare the two sets to get the results
+    lookup_user_bonds ( 
+        input_file,
+        usa_bonds,
+        modify_flag,
+        sum_flag,
+        print_flag
+    )  
+
+
+def lookup_user_bonds( inputfile, usa_bonds, modify_flag, sum_flag, print_flag ):
+
+    # Init dictionaries to keep track of csv columns index for ease of lookup
+    required_csv_headers = { "Denom": -1, "Series": -1, "Issue Date": -1 }
+    to_add_headers = { "Interest Rate": -1, "Interest": -1, "Current Value": -1 }
+
+    csvfile = open( inputfile, 'r', encoding="utf-8" )
+
+    # Store the index of the headers
+    csv_headers = csvfile.readline().split(',')
+    for index, header in enumerate(csv_headers):
+        header = header.strip('\n')
+        csv_headers[index] = header
+        if header in required_csv_headers.keys():
+            required_csv_headers[header] = index
+        if header in to_add_headers.keys():
+            to_add_headers[header] = index
+
+    print("Found headers: " + str(csv_headers) )
+
+    # Modify CSV headers or deteremine if the CSV already has allocated the additional columns
+    if modify_flag:
+        modified_headers = csv_headers
+        for header in to_add_headers.items():
+            if header[1] == -1: # header is a tuple
+                next_index = len(modified_headers)
+                modified_headers[next_index] = header[0]
+        # Write back
+
+    # continue after header line
+    for row in csvfile.readlines():
+        row = row.split(',')
+        denom_value = row[ required_csv_headers["Denom"] ]
+
+        int_earned_key = 'int_earned_' + denom_value + '_amt'
+        redemp_value_key = 'redemp_value_' + denom_value + '_amt'
+
+        #modified_file =[]
+    return 
+    """ 
+    # Checking if the treasury data is relevant to the user data
+    # Then, change the row for a write back
+        if (mimic_tuple in treasury_data): # issue_date is a single year-month
+            row[5] = treasury_data[mimic_tuple][yield_int] + '%'
+            row[6] = '$' + treasury_data[mimic_tuple][int_earned]
+            row[7] = '$' + treasury_data[mimic_tuple][redemp_value]
+        else: 
+            for key, value in treasury_data.items(): # Iterate through keys to find a possible match
+                if ( set(mimic_tuple).issubset(key) ): # issue date is a range
+                    row[5] = value[yield_int] + '%'
+                    row[6] = '$' + value[int_earned]
+                    row[7] = '$' + value[redemp_value]
+        modified_file.append(row) """
+                
     
-    #compare_results(input_file, usa_bon)
-    #if modify_input_file:
-    #    modify_csv(input_file)
-    #else:
 
-def get_api_fields():
-    get_request = BASE_URL + BOND_ENDPOINT
-    # Attempt to reach out to USA Treasury beforehand to gather some data
-    #TODO: Catch error if cannot connect
-    initial_response = requests.get( get_request )
-    available_fields = ( initial_response.json() )['meta']['dataTypes']
-    for field in available_fields:
-        print( "\t\tField: " + field + "\tType: " + available_fields[field] )
+def preprocess_csv(inputfile, print_flag):
 
-
-def scan_csv(inputfile):
-
-    #treasury_data = curl_bond_data()
-    # Checking curl response
-    #for key, value in treasury_data.items():
-       #print( str(key) + ' -> ' + str(value) + '\n\n')
-       #print( str(key) + '\n\n')
-
+    # Some hard-coded validation
     valid_denom = ["10", "25", "50", "75", "100", "200", "500", "1000", "5000", "10000"]
     valid_series = ["I", "E", "EE", "H", "HH"]
     valid_series_regex = "(Series )?(I|E{2}|E|H{2}|H)"
-    # Init a dictionary so we can store where certain csv columns are
+
+    # Init a dictionary so we can keep track of the required csv columns index for ease of lookup
     required_csv_headers = { "Denom": -1, "Series": -1, "Issue Date": -1 }
     
     csvfile = open( inputfile, 'r', encoding="utf-8" )
 
-    #store the index of the headers
+    # Store the index of the headers
     csv_headers = csvfile.readline().split(',')
     for index, header in enumerate(csv_headers):
         if header in required_csv_headers.keys():
             required_csv_headers[header] = index
 
-    # Keep track of unique found values so that we can form a targeted query
+    # If the minimumm required headers arent found, throw an exception
+    for required_header in required_csv_headers.items():
+        if required_csv_headers[required_header[0]] == -1:
+            raise Exception( "At minimum, the CSV file must contain columns" + str(required_csv_headers) + "\n Could not find: " + required_header )
+
+    # Keep track of unique found values so that we can form a targeted query to the API
     found_series = []
     found_denom = []
     found_years = []
@@ -125,10 +192,15 @@ def scan_csv(inputfile):
         if series_value[1] not in found_series:
             found_series.append(series_value[1])
 
-
+    if print_flag:
+        print("Found Denom: " + str(found_denom)   + "\n\
+               Found Series: " + str(found_series) + "\n\
+               Found Years: " + str(found_years)   + "\n"
+        )
+    # Return all of the denoms, series, and years in the csv
     return (found_denom, found_series, found_years)
 
-def curl_api(denoms, series, years):
+def fetch_bond_data(denoms, series, years):
 
     # Redemption period is always today
     today = date.today()
@@ -140,10 +212,10 @@ def curl_api(denoms, series, years):
     for s in series:
         if issue_name[-1] != '(':
             issue_name += ","
-        issue_name += "Series%20" + s
+        issue_name += "Series%20" + s # html encoded str
     issue_name += ')'
 
-    #form issue_year filter
+    # form issue_year filter
     issue_year = 'issue_year:in:('
     for y in years:
         if issue_year[-1] != '(':
@@ -161,7 +233,7 @@ def curl_api(denoms, series, years):
     next_page = ""
     last_page = payload['links']['last']
 
-    # Dictionary to hold date driven values
+    # Dictionary to hold in memory the API info. Keys are a tuple of ( issue-date(s), issue_name/series )
     treasury_dict = { }
 
     # Continue scraping until 'last' != 'self'
@@ -185,10 +257,10 @@ def curl_api(denoms, series, years):
                 bond_date = datetime.datetime.strptime(issue_year + "-" + issue_months.strip(),  "%Y-%b").strftime("%Y-%m")
                 bond_info.append(bond_date)
             
-            bond_info.append(data['issue_name'])
+            bond_info.append( data['issue_name'] )
             treasury_dict[ tuple(bond_info) ] = data
 
-        #If there is a next page
+        #If there is a next page, continue
         if ( next_page is not None ):
             get_request = BASE_URL + BOND_ENDPOINT + parameters + next_page
             response = requests.get( get_request )
@@ -201,30 +273,15 @@ def curl_api(denoms, series, years):
 
     return treasury_dict
 
+def get_api_fields():
+    get_request = BASE_URL + BOND_ENDPOINT
+    # Attempt to reach out to USA Treasury beforehand to gather some data
+    #TODO: Catch error if cannot connect
+    initial_response = requests.get( get_request )
+    available_fields = ( initial_response.json() )['meta']['dataTypes']
+    for field in available_fields:
+        print( "\t\tField: " + field + "\tType: " + available_fields[field] )
 
-  #int_earned_key = 'int_earned_' + denom_value + '_amt'
-    #redemp_value_key = 'redemp_value_' + denom_value + '_amt'
-    #added_csv_headers = { "Interest Rate": -1, "Interest": -1, "Current Value": -1 }
-    #modified_file =[]
-
- # Checking if the treasury data is relevant to the user data
-    # Then, change the row for a write back
-    # if (mimic_tuple in treasury_data): # issue_date is a single year-month
-    #     row[5] = treasury_data[mimic_tuple][yield_int] + '%'
-    #     row[6] = '$' + treasury_data[mimic_tuple][int_earned]
-    #     row[7] = '$' + treasury_data[mimic_tuple][redemp_value]
-    # else: 
-    #     for key, value in treasury_data.items(): # Iterate through keys to find a possible match
-    #         if ( set(mimic_tuple).issubset(key) ): # issue date is a range
-    #             row[5] = value[yield_int] + '%'
-    #             row[6] = '$' + value[int_earned]
-    #             row[7] = '$' + value[redemp_value]
-    # modified_file.append(row)
-               
-    # with open(inputfile, 'w') as csvfile:
-    #    writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-    #    for data in modified_file:
-    #         writer.writerow(data)
 
 if __name__ == "__main__":
    main(sys.argv[1:])
