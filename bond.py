@@ -14,12 +14,13 @@ valid_series = ["I", "E", "EE", "H", "HH"]
 valid_series_regex = "(Series )?(I|E{2}|E|H{2}|H)"
 
 def usage():
-    print('Usage:\n\tbond.py [-h,f] -i <inputfile>\n\
+    print('Usage:\n\tbond.py [-h,m,s,v,f] -i <inputfile>\n\
             Options:\n\
             -h,--help\t Prints usage\n\
+            -p,--print\t Prints the results to stdout\n\
             -m,--modify\t Modify the given input file\n\
-            -s,--sum\t Calculate Sum. This will always print to stdout. If -m, It will also write to the file\n\
-            -v,--verbose\t Prints Stats and other information during processing\n\
+            -s,--sum\t Calculate Sum. This will always print to stdout\n\
+            -v,--verbose\t Prints stats and other information during processing. Useful for debugging\n\
             -f,--fields\t Availble fields for search from (url) ' + BASE_URL)
 
 def info():
@@ -28,12 +29,7 @@ def info():
             CMD Bond is able to do a mass lookup of USA Treasury Bond redemption values given their Denom, Series, and Issue Date.\n\
             This information is parsed from a CSV on your filesystem to form a targeted query for the current redemption value from the USA Tresaury API.\n\
             The primary use case for this is for paper bonds which USA no longer issues (circa 2011). \n\
-            More Options: bond.py -h \n\
-            --------------------------------------------------------------------------------------\n\
-            For more information on the contents of the USA Treasury API and descriptions on query field,\n\
-            use option -f, or the following documentation official ->\n\
-            Fields: https://fiscaldata.treasury.gov/datasets/redemption-tables/redemption-tables\n\
-            Filters: https://fiscaldata.treasury.gov/api-documentation/#filters\n" )
+            More Options: bond.py -h")
 
 # Main loop to parse command line inputs
 def main(argv):
@@ -43,9 +39,10 @@ def main(argv):
     modify_flag = False
     sum_flag = False
     print_flag = False
+    verbose_flag = False
 
     try:
-        opts, args = getopt.getopt(argv, "hpsmfi:",["input="])
+        opts, args = getopt.getopt(argv, "hpvsmfi:",["input="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
@@ -56,6 +53,8 @@ def main(argv):
             sys.exit()
         elif opt in ("-p", "--print"):
             print_flag = True
+        elif opt in ("-v", "--verbose"):
+            verbose_flag = True
         elif opt in ("-s", "--sum"):
             sum_flag = True
         elif opt in ("-m", "--modify"):
@@ -73,27 +72,28 @@ def main(argv):
         sys.exit(2)
 
     # Look through the CSV file so that we can ask the API for a more targeted amount of info
-    (denoms, series, years) = preprocess_csv( input_file, print_flag )
+    (denoms, series, years) = preprocess_csv( input_file, verbose_flag )
 
     # Returns a dictionary of relevant bond info. Key is a tuple of ( issue_date(s), issue_name/series )
-    usa_bonds = fetch_bond_data ( 
-        denoms, 
-        series, 
+    usa_bonds = fetch_bond_data (
+        denoms,
+        series,
         years,
-        print_flag
+        verbose_flag
     )
 
     # Compare the two sets to get the results
-    lookup_user_bonds ( 
+    lookup_user_bonds (
         input_file,
         usa_bonds,
         modify_flag,
         sum_flag,
-        print_flag
-    )  
+        print_flag,
+        verbose_flag
+    )
 
 
-def lookup_user_bonds( inputfile, usa_bonds, modify_flag, sum_flag, print_flag ):
+def lookup_user_bonds( inputfile, usa_bonds, modify_flag, sum_flag, print_flag, verbose_flag):
 
     # Init dictionaries to keep track of csv columns index for ease of lookup
     required_csv_headers = { "Denom": -1, "Series": -1, "Issue Date": -1 }
@@ -111,8 +111,6 @@ def lookup_user_bonds( inputfile, usa_bonds, modify_flag, sum_flag, print_flag )
         if header in to_add_headers.keys():
             to_add_headers[header] = index
 
-    print("Found headers: " + str(csv_headers) )
-
     # Modify CSV headers or deteremine if the CSV already has allocated the additional columns
     modified_file = []
     modified_headers = csv_headers
@@ -125,7 +123,8 @@ def lookup_user_bonds( inputfile, usa_bonds, modify_flag, sum_flag, print_flag )
     count = 0
     redemp_sum = 0
     interest_sum = 0
-
+    if print_flag:
+        print( "| Count | Issue Date | Denom | Series | Interest Earned | Redemption Value |\n----------------------------------------------------------------------------")
     # continue after header line
     for row in csvfile.readlines():
         row = row.split(',')
@@ -143,21 +142,26 @@ def lookup_user_bonds( inputfile, usa_bonds, modify_flag, sum_flag, print_flag )
             count = count + 1
             int_earned_value = usa_bonds[mock_tuple][int_earned_key]
             redemp_value_value = usa_bonds[mock_tuple][redemp_value_key]
-            print(  "| (" + str(count) + ") " + 
-                    "Issue Date: " +  issue_date_value + ", " +
-                    "Denom: " + denom_value + ", " +
-                    "Series: " + series_value + ", " +
-                    "Interest Earned: " + int_earned_value + ", " +
-                    "Redemption Value: " + redemp_value_value + ", "
-                )
+            if print_flag:
+                print(  "| (" + str(count) + ")" + 
+                        " | " +  issue_date_value + 
+                        " | " + denom_value  +
+                        " | " + series_value +
+                        " | " + int_earned_value +
+                        " | " + redemp_value_value + " |" )
             redemp_sum = redemp_sum + float(redemp_value_value)
             interest_sum = interest_sum + float(int_earned_value)
 
     redemp_sum = str( round(redemp_sum, 2) )
     interest_sum = str( round(interest_sum, 2) )
-    print(" -------------------------------------------------------\nTotal Redemption Value: " + redemp_sum + ", Total Interest Earned: " + interest_sum )
+    if print_flag:
+        print("----------------------------------------------------------------------------")
+    if verbose_flag:
+        print("Found " + str(count) + " bonds(s)" )
+    if sum_flag:
+        print("Total Redemption Value: " + redemp_sum + "\nTotal Interest Earned: " + interest_sum )
 
-def preprocess_csv(inputfile, print_flag):
+def preprocess_csv(inputfile, verbose_flag):
 
     # Init a dictionary so we can keep track of the required csv columns index for ease of lookup
     required_csv_headers = { "Denom": -1, "Series": -1, "Issue Date": -1 }
@@ -203,15 +207,12 @@ def preprocess_csv(inputfile, print_flag):
         if series_value[1] not in found_series:
             found_series.append(series_value[1])
 
-    if print_flag:
-        print("Found Denom: " + str(found_denom)   + "\n\
-               Found Series: " + str(found_series) + "\n\
-               Found Years: " + str(found_years)   + "\n"
-        )
+    if verbose_flag:
+        print("Found Denom: " + str(found_denom) + "\nFound Series: " + str(found_series) + "\nFound Years: " + str(found_years)   + "\n")
     # Return all of the denoms, series, and years in the csv
     return (found_denom, found_series, found_years)
 
-def fetch_bond_data(denoms, series, years, print_flag):
+def fetch_bond_data(denoms, series, years, verbose_flag):
 
     # Redemption period is always today
     today = date.today()
@@ -277,10 +278,11 @@ def fetch_bond_data(denoms, series, years, print_flag):
             response = requests.get( get_request )
             payload = response.json()
 
-    # Print method stats   
-    total_pages = payload['meta']['total-pages']
-    total_count = payload['meta']['total-count']     
-    print( "Scanned through " + str( total_count ) + " results on " + str( total_pages ) + " pages." )
+    # Print method stats  
+    if verbose_flag: 
+        total_pages = payload['meta']['total-pages']
+        total_count = payload['meta']['total-count']     
+        print( "Scanned through " + str( total_count ) + " results on " + str( total_pages ) + " pages." )
 
     return treasury_dict
 
