@@ -96,64 +96,102 @@ def main(argv):
 def lookup_user_bonds( inputfile, usa_bonds, modify_flag, sum_flag, print_flag, verbose_flag):
 
     # Init dictionaries to keep track of csv columns index for ease of lookup
-    required_csv_headers = { "Denom": -1, "Series": -1, "Issue Date": -1 }
-    to_add_headers = { "Interest Rate": -1, "Interest": -1, "Current Value": -1 }
+    csv_header_dict = {
+        "Denom": -1,
+        "Series": -1,
+        "Issue Date": -1,
+        "Interest Rate": -1,
+        "Interest Earned": -1,
+        "Current Value": -1
+    }
 
-    csvfile = open( inputfile, 'r', encoding="utf-8" )
+    csvreader = open( inputfile, 'r', encoding="utf-8" )
 
     # Store the index of the headers
-    csv_headers = csvfile.readline().split(',')
+    csv_headers = csvreader.readline().split(',')
     for index, header in enumerate(csv_headers):
         header = header.strip('\n')
         csv_headers[index] = header
-        if header in required_csv_headers.keys():
-            required_csv_headers[header] = index
-        if header in to_add_headers.keys():
-            to_add_headers[header] = index
-
-    # Modify CSV headers or deteremine if the CSV already has allocated the additional columns
-    modified_file = []
-    modified_headers = csv_headers
+        csv_header_dict[header] = index
+        
+    # Add any additional headers or determine if the CSV already has allocated the additional columns
+    to_write_file = []
     if modify_flag:
-        for header in to_add_headers.items():
-            if header[1] == -1: # header is a tuple
-                next_index = len(modified_headers)
-                modified_headers[next_index] = header[0]
+        for key, value in csv_header_dict.items():
+            if key not in csv_headers: # Add this header to the end of the list if it does not exist
+                csv_header_dict[key] = len(csv_headers)
+                csv_headers.append(key)
+        to_write_file.append(csv_headers)
 
+    # some stats
     count = 0
     redemp_sum = 0
     interest_sum = 0
-    if print_flag:
-        print( "| Count | Issue Date | Denom | Series | Interest Earned | Redemption Value |\n----------------------------------------------------------------------------")
-    # continue after header line
-    for row in csvfile.readlines():
-        row = row.split(',')
 
-        denom_value = str(re.sub('[\$,]', '', row[ required_csv_headers["Denom"] ]))
-        series_value = re.findall( valid_series_regex, row[required_csv_headers["Series"]] )[0][1]
-        issue_date_value = row[required_csv_headers["Issue Date"]]
+    if print_flag:
+        dynamic_headers_str = "| Count | "
+        for key, value in csv_header_dict.items():
+            dynamic_headers_str = dynamic_headers_str + key + " | "
+        print( dynamic_headers_str )
+        print( "----------------------------------------------------------------------------")
+    
+    for row in csvreader.readlines():
+        row = row.split(',')
+        if '\n' in row:
+            row.remove('\n')
+        if '' in row:
+            row.remove('')
+
+        denom_value = str(re.sub('[\$,]', '', row[ csv_header_dict["Denom"] ]))
+        series_value = re.findall( valid_series_regex, row[csv_header_dict["Series"]] )[0][1]
+        issue_date_value = row[csv_header_dict["Issue Date"]]
 
         series_value = 'Series ' + series_value
-        mock_tuple = (issue_date_value, series_value )
+        mock_tuple = ( issue_date_value, series_value )
         int_earned_key = 'int_earned_' + denom_value + '_amt'
-        redemp_value_key = 'redemp_value_' + denom_value + '_amt'
+        redemp_key = 'redemp_value_' + denom_value + '_amt'
 
-        if (usa_bonds[mock_tuple]):
-            count = count + 1
-            int_earned_value = usa_bonds[mock_tuple][int_earned_key]
-            redemp_value_value = usa_bonds[mock_tuple][redemp_value_key]
-            if print_flag:
-                print(  "| (" + str(count) + ")" + 
-                        " | " +  issue_date_value + 
-                        " | " + denom_value  +
-                        " | " + series_value +
-                        " | " + int_earned_value +
-                        " | " + redemp_value_value + " |" )
-            redemp_sum = redemp_sum + float(redemp_value_value)
-            interest_sum = interest_sum + float(int_earned_value)
+        for key, value in usa_bonds.items(): # Iterate through keys to find a possible match
+            if set(mock_tuple).issubset(key): 
+                count = count + 1
 
+                int_earned_value = value[int_earned_key]
+                redemp_value = value[redemp_key]
+                yield_pct_value = value['yield_from_issue_pct']
+                
+                if print_flag:
+                    print(  "| (" + str(count) + ")" +
+                            " | " +  denom_value +
+                            " | " + series_value  +
+                            " | " + issue_date_value +
+                            " | " + issue_date_value +
+                            " | " + yield_pct_value +
+                            " | " + redemp_value + " |" )
+                if modify_flag:
+                    if csv_header_dict.get("Interest Rate") >= len(row):
+                        row.append(yield_pct_value)
+                    else:
+                        row[ csv_header_dict.get("Interest Rate") ] = yield_pct_value
+
+                    if csv_header_dict.get("Interest Earned") >= len(row):
+                        row.append(int_earned_value)
+                    else:
+                        row[ csv_header_dict.get("Interest Earned") ] = int_earned_value
+
+                    if csv_header_dict.get("Current Value") >= len(row):
+                        row.append(redemp_value)
+                    else:
+                        row[ csv_header_dict.get("Current Value") ] = redemp_value
+                    
+                    to_write_file.append(row)
+                redemp_sum = redemp_sum + float(redemp_value)
+                interest_sum = interest_sum + float(int_earned_value)
+                
+
+    csvreader.close()
     redemp_sum = str( round(redemp_sum, 2) )
     interest_sum = str( round(interest_sum, 2) )
+
     if print_flag:
         print("----------------------------------------------------------------------------")
     if verbose_flag:
@@ -161,23 +199,31 @@ def lookup_user_bonds( inputfile, usa_bonds, modify_flag, sum_flag, print_flag, 
     if sum_flag:
         print("Total Redemption Value: " + redemp_sum + "\nTotal Interest Earned: " + interest_sum )
 
+    if modify_flag:
+        with open(inputfile, 'w') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            for data in to_write_file:
+                #print(data)
+                writer.writerow(data)
+
+
 def preprocess_csv(inputfile, verbose_flag):
 
     # Init a dictionary so we can keep track of the required csv columns index for ease of lookup
-    required_csv_headers = { "Denom": -1, "Series": -1, "Issue Date": -1 }
+    csv_header_dict = { "Denom": -1, "Series": -1, "Issue Date": -1 }
     
     csvfile = open( inputfile, 'r', encoding="utf-8" )
 
     # Store the index of the headers
     csv_headers = csvfile.readline().split(',')
     for index, header in enumerate(csv_headers):
-        if header in required_csv_headers.keys():
-            required_csv_headers[header] = index
+        if header in csv_header_dict.keys():
+            csv_header_dict[header] = index
 
     # If the minimumm required headers arent found, throw an exception
-    for required_header in required_csv_headers.items():
-        if required_csv_headers[required_header[0]] == -1:
-            raise Exception( "At minimum, the CSV file must contain columns" + str(required_csv_headers) + "\n Could not find: " + required_header )
+    for required_header in csv_header_dict.items():
+        if csv_header_dict[required_header[0]] == -1:
+            raise Exception( "At minimum, the CSV file must contain columns" + str(csv_header_dict) + "\n Could not find: " + required_header )
 
     # Keep track of unique found values so that we can form a targeted query to the API
     found_series = []
@@ -187,23 +233,23 @@ def preprocess_csv(inputfile, verbose_flag):
         row = row.split(',')
 
         # Check if its a valid denom
-        denom_value = str(re.sub('[\$,]', '', row[ required_csv_headers["Denom"] ]))
+        denom_value = str(re.sub('[\$,]', '', row[ csv_header_dict["Denom"] ]))
         if denom_value not in valid_denom:
             raise Exception( "Valid Denom values are: " + str(valid_denom) + "\n Provided: " + denom_value )
         if denom_value not in found_denom:
             found_denom.append(denom_value)
 
         #  Check if its a valid issue date
-        issue_date_value = row[required_csv_headers["Issue Date"]].split('-')
+        issue_date_value = row[csv_header_dict["Issue Date"]].split('-')
         if len(issue_date_value) != 2:
-            raise Exception( "Valid Issue Date format is yyyy-mm" + "\n Provided: " + row[required_csv_headers["Issue Date"]])
+            raise Exception( "Valid Issue Date format is yyyy-mm" + "\n Provided: " + row[csv_header_dict["Issue Date"]])
         if issue_date_value[0] not in found_years:
             found_years.append(issue_date_value[0])
 
         # Check if its a valid series
-        series_value = re.findall( valid_series_regex, row[required_csv_headers["Series"]] )[0]
+        series_value = re.findall( valid_series_regex, row[csv_header_dict["Series"]] )[0]
         if series_value[1] not in valid_series:
-            raise Exception( "Valid Bond series are: " + str(valid_series) + "\n Provided: " + row[required_csv_headers["Series"]])
+            raise Exception( "Valid Bond series are: " + str(valid_series) + "\n Provided: " + row[csv_header_dict["Series"]])
         if series_value[1] not in found_series:
             found_series.append(series_value[1])
 
