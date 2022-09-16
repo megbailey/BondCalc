@@ -8,11 +8,18 @@ import os
 
 BASE_URL ='https://api.fiscaldata.treasury.gov/services/api/fiscal_service'
 BOND_ENDPOINT ='/v2/accounting/od/redemption_tables'
+# Some hard-coded validation
+valid_denom = ["10", "25", "50", "75", "100", "200", "500", "1000", "5000", "10000"]
+valid_series = ["I", "E", "EE", "H", "HH"]
+valid_series_regex = "(Series )?(I|E{2}|E|H{2}|H)"
 
 def usage():
     print('Usage:\n\tbond.py [-h,f] -i <inputfile>\n\
             Options:\n\
             -h,--help\t Prints usage\n\
+            -m,--modify\t Modify the given input file\n\
+            -s,--sum\t Calculate Sum. This will always print to stdout. If -m, It will also write to the file\n\
+            -v,--verbose\t Prints Stats and other information during processing\n\
             -f,--fields\t Availble fields for search from (url) ' + BASE_URL)
 
 def info():
@@ -72,7 +79,8 @@ def main(argv):
     usa_bonds = fetch_bond_data ( 
         denoms, 
         series, 
-        years 
+        years,
+        print_flag
     )
 
     # Compare the two sets to get the results
@@ -106,47 +114,50 @@ def lookup_user_bonds( inputfile, usa_bonds, modify_flag, sum_flag, print_flag )
     print("Found headers: " + str(csv_headers) )
 
     # Modify CSV headers or deteremine if the CSV already has allocated the additional columns
+    modified_file = []
+    modified_headers = csv_headers
     if modify_flag:
-        modified_headers = csv_headers
         for header in to_add_headers.items():
             if header[1] == -1: # header is a tuple
                 next_index = len(modified_headers)
                 modified_headers[next_index] = header[0]
-        # Write back
+
+    count = 0
+    redemp_sum = 0
+    interest_sum = 0
 
     # continue after header line
     for row in csvfile.readlines():
         row = row.split(',')
-        denom_value = row[ required_csv_headers["Denom"] ]
 
+        denom_value = str(re.sub('[\$,]', '', row[ required_csv_headers["Denom"] ]))
+        series_value = re.findall( valid_series_regex, row[required_csv_headers["Series"]] )[0][1]
+        issue_date_value = row[required_csv_headers["Issue Date"]]
+
+        series_value = 'Series ' + series_value
+        mock_tuple = (issue_date_value, series_value )
         int_earned_key = 'int_earned_' + denom_value + '_amt'
         redemp_value_key = 'redemp_value_' + denom_value + '_amt'
 
-        #modified_file =[]
-    return 
-    """ 
-    # Checking if the treasury data is relevant to the user data
-    # Then, change the row for a write back
-        if (mimic_tuple in treasury_data): # issue_date is a single year-month
-            row[5] = treasury_data[mimic_tuple][yield_int] + '%'
-            row[6] = '$' + treasury_data[mimic_tuple][int_earned]
-            row[7] = '$' + treasury_data[mimic_tuple][redemp_value]
-        else: 
-            for key, value in treasury_data.items(): # Iterate through keys to find a possible match
-                if ( set(mimic_tuple).issubset(key) ): # issue date is a range
-                    row[5] = value[yield_int] + '%'
-                    row[6] = '$' + value[int_earned]
-                    row[7] = '$' + value[redemp_value]
-        modified_file.append(row) """
-                
-    
+        if (usa_bonds[mock_tuple]):
+            count = count + 1
+            int_earned_value = usa_bonds[mock_tuple][int_earned_key]
+            redemp_value_value = usa_bonds[mock_tuple][redemp_value_key]
+            print(  "| (" + str(count) + ") " + 
+                    "Issue Date: " +  issue_date_value + ", " +
+                    "Denom: " + denom_value + ", " +
+                    "Series: " + series_value + ", " +
+                    "Interest Earned: " + int_earned_value + ", " +
+                    "Redemption Value: " + redemp_value_value + ", "
+                )
+            redemp_sum = redemp_sum + float(redemp_value_value)
+            interest_sum = interest_sum + float(int_earned_value)
+
+    redemp_sum = str( round(redemp_sum, 2) )
+    interest_sum = str( round(interest_sum, 2) )
+    print(" -------------------------------------------------------\nTotal Redemption Value: " + redemp_sum + ", Total Interest Earned: " + interest_sum )
 
 def preprocess_csv(inputfile, print_flag):
-
-    # Some hard-coded validation
-    valid_denom = ["10", "25", "50", "75", "100", "200", "500", "1000", "5000", "10000"]
-    valid_series = ["I", "E", "EE", "H", "HH"]
-    valid_series_regex = "(Series )?(I|E{2}|E|H{2}|H)"
 
     # Init a dictionary so we can keep track of the required csv columns index for ease of lookup
     required_csv_headers = { "Denom": -1, "Series": -1, "Issue Date": -1 }
@@ -200,7 +211,7 @@ def preprocess_csv(inputfile, print_flag):
     # Return all of the denoms, series, and years in the csv
     return (found_denom, found_series, found_years)
 
-def fetch_bond_data(denoms, series, years):
+def fetch_bond_data(denoms, series, years, print_flag):
 
     # Redemption period is always today
     today = date.today()
