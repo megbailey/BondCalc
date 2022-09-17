@@ -39,9 +39,10 @@ jobs:
       run: |
         pyinstaller cmd-bond.py
     - name: Release
-      uses: "megbailey/cmd-bond@latest"
+      uses: google-github-actions/release-please-action@v3
       with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        release-type: simple
+        token: "${{ secrets.GITHUB_TOKEN }}"
         automatic_release_tag: "latest"
         files: |
           dist/cmd-bond/cmd-bond
