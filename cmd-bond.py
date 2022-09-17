@@ -1,10 +1,11 @@
-import sys, getopt
+import sys
+import getopt
 import datetime
 from datetime import date
 import csv
 import re
 import requests
-import os
+
 
 BASE_URL ='https://api.fiscaldata.treasury.gov/services/api/fiscal_service'
 BOND_ENDPOINT ='/v2/accounting/od/redemption_tables'
@@ -20,7 +21,7 @@ def usage():
             -p,--print\t Prints the results to stdout\n\
             -m,--modify\t Modify the given input file\n\
             -s,--sum\t Calculate Sum. This will always print to stdout\n\
-            -v,--verbose\t Prints stats and other information during processing. Useful for debugging\n\
+            -v,--verbose Prints stats and other information during processing. Useful for debugging\n\
             -f,--fields\t Availble fields for search from (url) ' + BASE_URL)
 
 def info():
@@ -42,7 +43,7 @@ def main(argv):
     verbose_flag = False
 
     try:
-        opts, args = getopt.getopt(argv, "hpvsmfi:",["input="])
+        opts = getopt.getopt(argv, "hpvsmfi:",["input="])
     except getopt.GetoptError:
         usage()
         sys.exit(2)
