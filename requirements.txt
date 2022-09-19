@@ -2,6 +2,6 @@
 pyinstaller==5.4.1
 pyinstaller-hooks-contrib==2022.10
 pylint==2.15.2
-PyPDF2==2.10.8
+PyPDF2==2.10.9
 requests==2.28.1
 
