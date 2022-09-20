@@ -1,8 +1,6 @@
 # CMD Bond
 
-CMD Bond is a command line tool that is able to do a mass lookup of USA Treasury Bond redemption values given their Denom, Series, and Issue Date. This information is parsed from a CSV on your filesystem to form a targeted query for the current redemption value from the [USA Treasury API](https://fiscaldata.treasury.gov/api-documentation). The primary use case for this is for paper bonds which USA no longer issues (circa 2011)*. 
-
-*Series EE bonds reach full-maturity at 20 years and stop occuring interest at 30 years. Paper bonds may exist until 2041.
+CMD Bond is a command line tool that is able to do a mass lookup of USA Treasury Bond redemption values given their Denom, Series, and Issue Date. This information is parsed from a CSV on your filesystem to form a targeted query for the current redemption value from the [USA Treasury API](https://fiscaldata.treasury.gov/api-documentation). The primary use case for this is for paper bonds which USA stopped issuing circa 2011). Series EE bonds reach full-maturity at 20 years and stop occuring interest at 30 years. Therefore, paper bonds may exist until 2041.
 
 More in depth information on the contents of the USA Treasury API to extend cmd-bond for further functionality use option -f or refer to the official documentation.
 
