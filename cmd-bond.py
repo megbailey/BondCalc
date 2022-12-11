@@ -1,5 +1,5 @@
 import sys
-import getopt
+import argparse
 import datetime
 from datetime import date
 import csv
@@ -14,83 +14,38 @@ valid_denom = ["10", "25", "50", "75", "100", "200", "500", "1000", "5000", "100
 valid_series = ["I", "E", "EE", "H", "HH"]
 valid_series_regex = "(Series )?(I|E{2}|E|H{2}|H)"
 
-def usage():
-    print('Usage:\n\tbond.py [-h,m,s,v,f] -i <inputfile>\n\
-            Options:\n\
-            -h,--help\t Prints usage\n\
-            -p,--print\t Prints the results to stdout\n\
-            -m,--modify\t Modify the given input file\n\
-            -s,--sum\t Calculate Sum. This will always print to stdout\n\
-            -v,--verbose Prints stats and other information during processing. Useful for debugging\n\
-            -f,--fields\t Availble fields for search from (url) ' + BASE_URL)
-
-def info():
-    print( "\n\
-            --------------------------------------------------------------------------------------\n\
-            CMD Bond is able to do a mass lookup of USA Treasury Bond redemption values given their Denom, Series, and Issue Date.\n\
-            This information is parsed from a CSV on your filesystem to form a targeted query for the current redemption value from the USA Tresaury API.\n\
-            The primary use case for this is for paper bonds which USA no longer issues (circa 2011). \n\
-            More Options: bond.py -h")
-
 # Main loop to parse command line inputs
 def main(argv):
+    parser = argparse.ArgumentParser(description='Mass lookup of USA Treasury Bond redemption values given a CSV file')
+    parser.add_argument('inputfile', action='store', help='the CSV file')
+    parser.add_argument('-p', '--print', required=False, action='store_true', help='Prints the results to stdout')
+    parser.add_argument('-s', '--sum', required=False, action='store_true', help='Calculates the sum. This will always print to stdout')
+    parser.add_argument('-m', '--modify', required=False, action='store_true', help='Modify the given input file')
+    parser.add_argument('-f', '--fields', required=False, action='store_true', help='Availble fields for search from (url):' + BASE_URL)
+    parser.add_argument('-v', '--verbose', required=False, action='store_true',
+                        help='Prints stats and other information during processing. Useful for debugging')
 
-    input_file = ''
-    input_flag = False
-    modify_flag = False
-    sum_flag = False
-    print_flag = False
-    verbose_flag = False
-
-    try:
-        opts = getopt.getopt(argv, "hpvsmfi:",["input="])
-    except getopt.GetoptError:
-        usage()
-        sys.exit(2)
-
-    for opt, arg in opts:
-        if opt in ("-h", "--help"):
-            usage()
-            sys.exit()
-        elif opt in ("-p", "--print"):
-            print_flag = True
-        elif opt in ("-v", "--verbose"):
-            verbose_flag = True
-        elif opt in ("-s", "--sum"):
-            sum_flag = True
-        elif opt in ("-m", "--modify"):
-            modify_flag = True
-        elif opt in ("-f", "--fields"):
-            get_api_fields()
-            sys.exit()
-        elif opt in ("-i", "--input"):
-            input_file = arg
-            input_flag = True
-
-    if not input_flag:
-        print("Input file is required.")
-        usage()
-        sys.exit(2)
+    args = parser.parse_args()
 
     # Look through the CSV file so that we can ask the API for a more targeted amount of info
-    (denoms, series, years) = preprocess_csv( input_file, verbose_flag )
+    (denoms, series, years) = preprocess_csv( args.inputfile, args.verbose )
 
     # Returns a dictionary of relevant bond info. Key is a tuple of ( issue_date(s), issue_name/series )
     usa_bonds = fetch_bond_data (
         denoms,
         series,
         years,
-        verbose_flag
+        args.verbose
     )
 
     # Compare the two sets to get the results
     lookup_user_bonds (
-        input_file,
+        args.inputfile,
         usa_bonds,
-        modify_flag,
-        sum_flag,
-        print_flag,
-        verbose_flag
+        args.modify,
+        args.sum,
+        args.print,
+        args.verbose
     )
 
 
